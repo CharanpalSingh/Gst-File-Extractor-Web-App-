@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Extract, validate, rename, and package complete Penner FUEL and STATEMENT PDFs from dated GST folders.">
+  <title>GST FUEL and STATEMENT File Extractor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Browser-based utility</p>
+        <h1>GST FUEL and STATEMENT File Extractor</h1>
+        <p class="subtitle">Select the parent folder containing dated folders such as <code>20260430</code>. Processing happens in your browser.</p>
+      </div>
+
+      <div class="brand-panel">
+        <div id="logoFallback" class="logo-fallback" aria-hidden="true">PENNER</div>
+        <img id="pennerLogo" src="Penner_Logo.png" alt="Penner International logo">
+        <a href="https://pennerinternational.sharefile.com/" target="_blank" rel="noopener noreferrer">Get statements from here</a>
+      </div>
+    </header>
+
+    <section class="panel" aria-labelledby="sourceHeading">
+      <h2 id="sourceHeading">1. Select GST folders</h2>
+      <label class="file-picker" for="folderInput">
+        <span>Choose GST parent folder</span>
+        <input id="folderInput" type="file" webkitdirectory directory multiple accept=".pdf,application/pdf">
+      </label>
+      <p id="selectionSummary" class="helper" aria-live="polite">No folder selected.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="settingsHeading">
+      <h2 id="settingsHeading">2. Processing options</h2>
+
+      <div class="settings-grid">
+        <label>
+          Number of months expected
+          <input id="monthsInput" type="number" min="1" max="60" value="3">
+          <span class="helper">Normally 2 dated folders and 4 PDFs per month.</span>
+        </label>
+
+        <fieldset>
+          <legend>Output folders</legend>
+          <label class="check-row">
+            <input id="structuredOption" type="checkbox" checked>
+            <span>Structured output with dated subfolders</span>
+          </label>
+          <label class="check-row">
+            <input id="flatOption" type="checkbox" checked>
+            <span>Flat output without subfolders</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>PDF processing</legend>
+          <label class="check-row">
+            <input id="renameOption" type="checkbox" checked>
+            <span>Rename using period dates, unit, and document type</span>
+          </label>
+          <label class="check-row">
+            <input id="auditOption" type="checkbox" checked>
+            <span>Include CSV audit log</span>
+          </label>
+        </fieldset>
+      </div>
+
+      <div class="actions">
+        <button id="processButton" type="button" disabled>Process selected folder</button>
+        <button id="resetButton" type="button" class="secondary">Reset</button>
+      </div>
+
+      <div class="progress-wrap" aria-live="polite">
+        <progress id="progressBar" max="100" value="0"></progress>
+        <span id="progressText">Ready</span>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="resultsHeading">
+      <div class="section-heading-row">
+        <h2 id="resultsHeading">3. Validation results</h2>
+        <button id="downloadButton" type="button" disabled>Download results ZIP</button>
+      </div>
+
+      <div id="summaryCards" class="summary-grid" aria-live="polite">
+        <article class="summary-card">
+          <span>Dated folders</span>
+          <strong id="folderCount">0</strong>
+        </article>
+        <article class="summary-card">
+          <span>Matching PDFs</span>
+          <strong id="pdfCount">0</strong>
+        </article>
+        <article class="summary-card">
+          <span>Folders with issues</span>
+          <strong id="issueCount">0</strong>
+        </article>
+        <article class="summary-card">
+          <span>Processing errors</span>
+          <strong id="errorCount">0</strong>
+        </article>
+      </div>
+
+      <div id="overallStatus" class="status-callout neutral">Select a folder to begin.</div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Dated folder</th>
+              <th>FUEL</th>
+              <th>STATEMENT</th>
+              <th>Total</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="folderResultsBody">
+            <tr>
+              <td colspan="5" class="empty-state">No results yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <details>
+        <summary>Processing log</summary>
+        <pre id="processingLog">Ready.</pre>
+      </details>
+    </section>
+
+    <footer>
+      <span>By Charanpal Singh</span>
+      <span>Your selected PDFs are processed locally in the browser and are not uploaded by this app.</span>
+    </footer>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
