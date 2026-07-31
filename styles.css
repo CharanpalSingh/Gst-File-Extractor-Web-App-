@@ -47,6 +47,12 @@ input {
   margin-bottom: 22px;
 }
 
+.app-description {
+    max-width: 680px;
+    margin: 8px 0 0;
+    color: #5f6b76;
+    line-height: 1.6;
+}
 .eyebrow {
   margin: 0 0 6px;
   color: var(--accent);
@@ -346,12 +352,6 @@ details {
   margin-top: 18px;
 }
 
-.app-description {
-    max-width: 680px;
-    margin: 8px 0 0;
-    color: #5f6b76;
-    line-height: 1.6;
-}
 summary {
   cursor: pointer;
   font-weight: 700;
