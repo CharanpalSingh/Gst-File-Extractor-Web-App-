@@ -191,19 +191,6 @@ Do not open `app.js` directly. It is loaded automatically by `index.html`.
 
 For development, open the project folder in Visual Studio Code and use the Microsoft **Live Preview** extension.
 
-## Publish with GitHub Pages
-
-1. Upload all project files to the repository.
-2. Open the repository’s **Settings**.
-3. Select **Pages**.
-4. Under **Build and deployment**, choose **Deploy from a branch**.
-5. Select:
-   - Branch: `main`
-   - Folder: `/ (root)`
-6. Save the settings.
-7. Wait for GitHub to publish the site.
-8. Open the website address shown in the GitHub Pages section.
-
 ## Browser Support
 
 Google Chrome or Microsoft Edge is recommended because folder selection is most consistent in Chromium-based browsers.
