@@ -224,16 +224,6 @@ _STATEMENT.pdf
 
 Files such as `_FUELTAX.pdf` are intentionally excluded.
 
-### The logo does not appear
-
-Confirm the image is named exactly:
-
-```text
-Penner_Logo.png
-```
-
-and is stored beside `index.html`.
-
 ### The ZIP download does not work
 
 Confirm that:
