@@ -16,7 +16,7 @@
 
   <title>GST FUEL and STATEMENT File Extractor</title>
 
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 
 <body>
@@ -41,7 +41,16 @@
       </div>
 
       <div class="brand-panel">
+        <div
+          id="logoFallback"
+          class="logo-fallback"
+          aria-hidden="true"
+        >
+          PENNER
+        </div>
+
         <img
+          id="pennerLogo"
           src="Penner_Logo.png"
           alt="Penner International logo"
           class="penner-logo"
@@ -92,8 +101,8 @@
           </label>
 
           <p class="helper">
-            The ZIP can contain an outer folder, but the PDFs must be inside
-            8-digit dated folders.
+            The ZIP can contain an outer folder. Each matching PDF must be
+            directly inside an 8-digit dated folder.
           </p>
         </div>
       </div>
@@ -280,7 +289,6 @@
 
     <footer>
       <span>By Charanpal Singh</span>
-
       <span>
         Your selected PDFs are processed locally in the browser and are not
         uploaded by this application.
@@ -290,7 +298,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=4"></script>
 </body>
 
 </html>
