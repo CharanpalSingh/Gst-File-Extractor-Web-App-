@@ -791,3 +791,179 @@ code {
     min-width: 900px;
   }
 }
+
+/* ==========================================================
+   Version 5 help dialog
+   ========================================================== */
+
+.help-button {
+  min-height: 36px;
+  padding: 7px 12px;
+  background: var(--surface-soft);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.help-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.help-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+}
+
+.help-modal.is-open {
+  display: flex;
+}
+
+.help-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 12, 19, 0.68);
+  backdrop-filter: blur(3px);
+}
+
+.help-modal-card {
+  position: relative;
+  z-index: 1;
+  width: min(760px, 100%);
+  max-height: calc(100vh - 44px);
+  overflow-y: auto;
+  padding: 26px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+}
+
+.help-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 12px;
+}
+
+.help-modal-header h2 {
+  margin-bottom: 0;
+  font-size: 1.55rem;
+}
+
+.help-modal-header .eyebrow {
+  margin-bottom: 4px;
+}
+
+.help-close-button {
+  flex: 0 0 auto;
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: var(--surface-soft);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.help-close-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.help-intro {
+  margin: 0 0 18px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.help-steps {
+  margin: 0;
+  padding-left: 1.45rem;
+}
+
+.help-steps li {
+  margin-bottom: 16px;
+  padding-left: 5px;
+  line-height: 1.55;
+}
+
+.help-steps li::marker {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.help-steps strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.help-note {
+  margin-top: 14px;
+  padding: 13px 15px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.help-note strong {
+  color: var(--text);
+}
+
+.help-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+@media (max-width: 540px) {
+  .help-button {
+    width: 100%;
+  }
+
+  .help-modal {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .help-modal-card {
+    width: 100%;
+    max-height: calc(100vh - 20px);
+    padding: 19px;
+    border-radius: 14px;
+  }
+
+  .help-modal-header {
+    gap: 12px;
+  }
+
+  .help-modal-header h2 {
+    font-size: 1.35rem;
+  }
+
+  .help-modal-actions button {
+    width: 100%;
+  }
+}
+

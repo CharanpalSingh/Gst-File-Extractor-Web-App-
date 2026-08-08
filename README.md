@@ -387,7 +387,9 @@ The application uses:
 - JavaScript
 - PDF.js for reading PDF text
 - JSZip for reading input ZIP files and creating output ZIP files
-  
+
+No PowerShell installation or Python installation is required for the browser version.
+
 ## Repository Structure
 
 ```text

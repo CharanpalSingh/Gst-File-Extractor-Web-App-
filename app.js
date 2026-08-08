@@ -10,6 +10,7 @@
    - Automatic expected-month detection
    - Missing/incomplete pay-period detection
    - Rename preview before output ZIP creation
+   - Built-in How to Use help dialog
    ========================================================== */
 
 const PDFJS_VERSION = "3.11.174";
@@ -54,7 +55,12 @@ const elements = {
   folderResultsBody: document.getElementById("folderResultsBody"),
   processingLog: document.getElementById("processingLog"),
   pennerLogo: document.getElementById("pennerLogo"),
-  logoFallback: document.getElementById("logoFallback")
+  logoFallback: document.getElementById("logoFallback"),
+
+  helpButton: document.getElementById("helpButton"),
+  helpModal: document.getElementById("helpModal"),
+  helpCloseButton: document.getElementById("helpCloseButton"),
+  helpDoneButton: document.getElementById("helpDoneButton")
 };
 
 const DEFAULT_MONTHS = elements.monthsInput?.defaultValue || "3";
@@ -1806,6 +1812,65 @@ function downloadGeneratedZip() {
 }
 
 /* ==========================================================
+   Help dialog
+   ========================================================== */
+
+let helpPreviousFocus = null;
+
+function openHelp() {
+  if (!elements.helpModal) return;
+
+  helpPreviousFocus = document.activeElement;
+  elements.helpModal.classList.add("is-open");
+  elements.helpModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+
+  window.setTimeout(() => {
+    elements.helpCloseButton?.focus();
+  }, 0);
+}
+
+function closeHelp() {
+  if (!elements.helpModal) return;
+
+  elements.helpModal.classList.remove("is-open");
+  elements.helpModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+
+  if (helpPreviousFocus && typeof helpPreviousFocus.focus === "function") {
+    helpPreviousFocus.focus();
+  }
+}
+
+function trapHelpFocus(event) {
+  if (
+    event.key !== "Tab"
+    || !elements.helpModal?.classList.contains("is-open")
+  ) {
+    return;
+  }
+
+  const focusable = Array.from(
+    elements.helpModal.querySelectorAll(
+      'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter(element => element.offsetParent !== null);
+
+  if (!focusable.length) return;
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+/* ==========================================================
    Reset and event listeners
    ========================================================== */
 
@@ -1859,6 +1924,35 @@ if (elements.pennerLogo && elements.logoFallback) {
   elements.pennerLogo.addEventListener("load", () => {
     elements.logoFallback.style.display = "none";
     elements.pennerLogo.style.display = "block";
+  });
+}
+
+if (
+  elements.helpButton
+  && elements.helpModal
+  && elements.helpCloseButton
+  && elements.helpDoneButton
+) {
+  elements.helpButton.addEventListener("click", openHelp);
+  elements.helpCloseButton.addEventListener("click", closeHelp);
+  elements.helpDoneButton.addEventListener("click", closeHelp);
+
+  elements.helpModal.addEventListener("click", event => {
+    if (event.target instanceof HTMLElement && event.target.dataset.helpClose === "true") {
+      closeHelp();
+    }
+  });
+
+  document.addEventListener("keydown", event => {
+    if (!elements.helpModal.classList.contains("is-open")) return;
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeHelp();
+      return;
+    }
+
+    trapHelpFocus(event);
   });
 }
 

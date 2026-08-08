@@ -16,7 +16,7 @@
 
   <title>GST FUEL and STATEMENT File Extractor</title>
 
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=5-help">
 </head>
 
 <body>
@@ -63,6 +63,16 @@
         >
           Get statements from here
         </a>
+
+        <button
+          id="helpButton"
+          type="button"
+          class="help-button"
+          aria-haspopup="dialog"
+          aria-controls="helpModal"
+        >
+          ? How to use
+        </button>
       </div>
     </header>
 
@@ -417,9 +427,108 @@
     </footer>
   </main>
 
+  <!-- =====================================================
+       Help / How to use
+       ===================================================== -->
+
+  <div
+    id="helpModal"
+    class="help-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="helpTitle"
+    aria-hidden="true"
+  >
+    <div class="help-modal-backdrop" data-help-close="true"></div>
+
+    <div class="help-modal-card" role="document">
+      <div class="help-modal-header">
+        <div>
+          <p class="eyebrow">Quick guide</p>
+          <h2 id="helpTitle">How to use this site</h2>
+        </div>
+
+        <button
+          id="helpCloseButton"
+          type="button"
+          class="help-close-button"
+          aria-label="Close help"
+        >
+          &times;
+        </button>
+      </div>
+
+      <p class="help-intro">
+        Use the steps below to check, rename, and organize your Penner FUEL and
+        STATEMENT PDFs. Nothing is uploaded by this application.
+      </p>
+
+      <ol class="help-steps">
+        <li>
+          <strong>Get your statements.</strong>
+          Download the required GST files from Penner ShareFile. You can use an
+          extracted parent folder or keep the downloaded files in a ZIP.
+        </li>
+
+        <li>
+          <strong>Select or drop the files.</strong>
+          Drag and drop a GST folder or ZIP into the drop area, or use
+          <em>Choose GST parent folder</em> / <em>Choose a GST ZIP file</em>.
+          Matching PDFs must be directly inside an 8-digit dated folder such as
+          <code>20260430</code>.
+        </li>
+
+        <li>
+          <strong>Wait for automatic analysis.</strong>
+          The app reads the matching PDFs, detects their pay-period dates,
+          automatically estimates the number of months, and checks for missing,
+          incomplete, duplicate, or non-standard periods.
+        </li>
+
+        <li>
+          <strong>Review the detected pay periods.</strong>
+          A normal period should have one FUEL file and one STATEMENT file.
+          Warnings show periods or files that need to be checked before you create
+          the output.
+        </li>
+
+        <li>
+          <strong>Review the rename preview.</strong>
+          Check the detected period, unit number, and proposed filename. A typical
+          output name looks like
+          <code>2026-04_April_16-30_70161_FUEL.pdf</code>.
+        </li>
+
+        <li>
+          <strong>Create and download the output.</strong>
+          Choose structured output, flat output, or both. Leave the CSV audit log
+          selected if you want a record of the processing. Click
+          <em>Create output ZIP</em>, then <em>Download results ZIP</em>.
+        </li>
+      </ol>
+
+      <div class="help-note">
+        <strong>What files are processed?</strong>
+        Only filenames ending exactly in <code>_FUEL.pdf</code> or
+        <code>_STATEMENT.pdf</code>. Files such as <code>_FUELTAX.pdf</code>,
+        <code>_REPAIRS.pdf</code>, and <code>_LEGS.pdf</code> are ignored.
+      </div>
+
+      <div class="help-note">
+        <strong>Expected pattern:</strong>
+        normally 2 dated folders per month, with 1 FUEL and 1 STATEMENT PDF in
+        each folder (4 matching PDFs per month).
+      </div>
+
+      <div class="help-modal-actions">
+        <button id="helpDoneButton" type="button">Got it</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=5-help"></script>
 </body>
 
 </html>
