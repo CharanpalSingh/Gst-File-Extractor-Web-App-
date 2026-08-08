@@ -11,12 +11,12 @@
 
   <meta
     name="description"
-    content="Extract, validate, rename, and package complete Penner FUEL and STATEMENT PDFs from dated GST folders or a GST ZIP file."
+    content="Extract, validate, preview renaming, detect pay periods, and package Penner FUEL and STATEMENT PDFs from dated GST folders or ZIP files."
   >
 
   <title>GST FUEL and STATEMENT File Extractor</title>
 
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=5">
 </head>
 
 <body>
@@ -29,14 +29,14 @@
         <h1>GST FUEL and STATEMENT File Extractor</h1>
 
         <p class="subtitle">
-          Select a parent folder or ZIP file containing dated folders such as
+          Select, drag and drop, or open a ZIP containing dated folders such as
           <code>20260430</code>. Processing happens in your browser.
         </p>
 
         <p class="app-description">
-          Extract, validate, rename, and organize Penner FUEL and STATEMENT PDFs.
-          The tool checks each dated folder and creates structured or flat ZIP
-          outputs without uploading your documents.
+          The tool validates FUEL and STATEMENT PDFs, reads their pay-period dates,
+          previews the renamed files, detects missing periods, and creates structured
+          or flat ZIP outputs without uploading your documents.
         </p>
       </div>
 
@@ -66,8 +66,21 @@
       </div>
     </header>
 
+    <!-- =====================================================
+         1. Source selection
+         ===================================================== -->
+
     <section class="panel" aria-labelledby="sourceHeading">
-      <h2 id="sourceHeading">1. Select a folder or ZIP file</h2>
+      <h2 id="sourceHeading">1. Select GST files</h2>
+
+      <div
+        id="dropZone"
+        class="drop-zone"
+        aria-label="Drag and drop a GST folder or ZIP file"
+      >
+        <strong>Drag &amp; drop a GST folder or ZIP here</strong>
+        <span>or use one of the selection options below</span>
+      </div>
 
       <div class="source-options">
         <div class="source-option">
@@ -101,20 +114,24 @@
           </label>
 
           <p class="helper">
-            The ZIP can contain an outer folder. Each matching PDF must be
-            directly inside an 8-digit dated folder.
+            The ZIP can contain an outer folder. Matching PDFs must be directly
+            inside an 8-digit dated folder.
           </p>
         </div>
       </div>
 
       <p
         id="selectionSummary"
-        class="helper"
+        class="helper selection-summary"
         aria-live="polite"
       >
         No folder or ZIP file selected.
       </p>
     </section>
+
+    <!-- =====================================================
+         2. Processing options
+         ===================================================== -->
 
     <section class="panel" aria-labelledby="settingsHeading">
       <h2 id="settingsHeading">2. Processing options</h2>
@@ -131,8 +148,9 @@
             value="3"
           >
 
-          <span class="helper">
-            Normally 2 dated folders and 4 PDFs per month.
+          <span id="monthsHelper" class="helper">
+            Automatically updated after the PDF pay periods are detected. You can
+            still override the value.
           </span>
         </label>
 
@@ -191,7 +209,7 @@
           type="button"
           disabled
         >
-          Process selected source
+          Create output ZIP
         </button>
 
         <button
@@ -214,9 +232,112 @@
       </div>
     </section>
 
+    <!-- =====================================================
+         3. Automatic pay-period detection
+         ===================================================== -->
+
+    <section class="panel" aria-labelledby="periodHeading">
+      <div class="section-heading-row">
+        <h2 id="periodHeading">3. Detected pay periods</h2>
+      </div>
+
+      <div class="summary-grid period-summary-grid" aria-live="polite">
+        <article class="summary-card">
+          <span>Detected months</span>
+          <strong id="detectedMonthsCount">0</strong>
+        </article>
+
+        <article class="summary-card">
+          <span>Detected periods</span>
+          <strong id="detectedPeriodCount">0</strong>
+        </article>
+
+        <article class="summary-card">
+          <span>Missing periods</span>
+          <strong id="missingPeriodCount">0</strong>
+        </article>
+
+        <article class="summary-card">
+          <span>PDF analysis errors</span>
+          <strong id="previewErrorCount">0</strong>
+        </article>
+      </div>
+
+      <div
+        id="periodStatus"
+        class="status-callout neutral"
+        aria-live="polite"
+      >
+        Pay periods will be detected automatically after you select files.
+      </div>
+
+      <div class="table-wrap">
+        <table class="period-table">
+          <thead>
+            <tr>
+              <th scope="col">Expected pay period</th>
+              <th scope="col">FUEL</th>
+              <th scope="col">STATEMENT</th>
+              <th scope="col">Dated folder(s)</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+
+          <tbody id="periodResultsBody">
+            <tr>
+              <td colspan="5" class="empty-state">No periods detected yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- =====================================================
+         4. Rename preview
+         ===================================================== -->
+
+    <section class="panel" aria-labelledby="previewHeading">
+      <div class="section-heading-row">
+        <h2 id="previewHeading">4. Rename preview</h2>
+      </div>
+
+      <div
+        id="previewStatus"
+        class="status-callout neutral"
+        aria-live="polite"
+      >
+        Select a folder or ZIP to preview the detected dates and filenames.
+      </div>
+
+      <div class="table-wrap">
+        <table class="preview-table">
+          <thead>
+            <tr>
+              <th scope="col">Dated folder</th>
+              <th scope="col">Original file</th>
+              <th scope="col">Detected period</th>
+              <th scope="col">Unit</th>
+              <th scope="col">Proposed filename</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+
+          <tbody id="renamePreviewBody">
+            <tr>
+              <td colspan="6" class="empty-state">No rename preview yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- =====================================================
+         5. Validation and download
+         ===================================================== -->
+
     <section class="panel" aria-labelledby="resultsHeading">
       <div class="section-heading-row">
-        <h2 id="resultsHeading">3. Validation results</h2>
+        <h2 id="resultsHeading">5. Validation and download</h2>
 
         <button
           id="downloadButton"
@@ -298,7 +419,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 
 </html>

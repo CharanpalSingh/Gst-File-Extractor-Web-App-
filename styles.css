@@ -676,3 +676,118 @@ code {
     padding: 10px;
   }
 }
+
+/* ==========================================================
+   Version 5 additions: drag/drop, period detection and preview
+   ========================================================== */
+
+.drop-zone {
+  display: flex;
+  min-height: 132px;
+  margin-bottom: 18px;
+  padding: 24px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--surface-soft);
+  border: 2px dashed var(--border-strong);
+  border-radius: 14px;
+  text-align: center;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.drop-zone strong {
+  font-size: 1.05rem;
+}
+
+.drop-zone span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.drop-zone.drag-over {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(21, 85, 141, 0.1);
+  transform: translateY(-1px);
+}
+
+.drop-zone.is-busy {
+  opacity: 0.65;
+}
+
+.selection-summary {
+  margin: 15px 2px 0;
+  font-weight: 650;
+}
+
+.period-summary-grid {
+  margin-top: 4px;
+}
+
+.period-table th:first-child,
+.period-table td:first-child {
+  min-width: 180px;
+}
+
+.period-table th:nth-child(4),
+.period-table td:nth-child(4) {
+  min-width: 150px;
+}
+
+.preview-table {
+  min-width: 980px;
+}
+
+.preview-table th:nth-child(2),
+.preview-table td:nth-child(2),
+.preview-table th:nth-child(5),
+.preview-table td:nth-child(5) {
+  min-width: 260px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.preview-table th:nth-child(3),
+.preview-table td:nth-child(3) {
+  min-width: 175px;
+}
+
+.preview-table td {
+  vertical-align: top;
+}
+
+.period-chip {
+  display: inline-block;
+  padding: 3px 8px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.muted-text {
+  color: var(--muted);
+}
+
+.status-text.neutral {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+@media (max-width: 540px) {
+  .drop-zone {
+    min-height: 112px;
+    padding: 18px;
+  }
+
+  .preview-table {
+    min-width: 900px;
+  }
+}

@@ -1,13 +1,15 @@
 "use strict";
 
 /* ==========================================================
-   GST FUEL and STATEMENT File Extractor
+   GST FUEL and STATEMENT File Extractor - Version 5
 
-   This version keeps the original, reliable PDF date-renaming
-   logic and adds support for selecting either:
-
-   1. A normal GST parent folder, or
-   2. A GST ZIP file
+   Keeps the original reliable PDF date-renaming logic and adds:
+   - Folder or ZIP input
+   - Drag-and-drop folder/ZIP input
+   - Automatic PDF pay-period detection
+   - Automatic expected-month detection
+   - Missing/incomplete pay-period detection
+   - Rename preview before output ZIP creation
    ========================================================== */
 
 const PDFJS_VERSION = "3.11.174";
@@ -19,9 +21,11 @@ if (window.pdfjsLib) {
 }
 
 const elements = {
+  dropZone: document.getElementById("dropZone"),
   folderInput: document.getElementById("folderInput"),
   zipInput: document.getElementById("zipInput"),
   monthsInput: document.getElementById("monthsInput"),
+  monthsHelper: document.getElementById("monthsHelper"),
   structuredOption: document.getElementById("structuredOption"),
   flatOption: document.getElementById("flatOption"),
   renameOption: document.getElementById("renameOption"),
@@ -32,6 +36,16 @@ const elements = {
   selectionSummary: document.getElementById("selectionSummary"),
   progressBar: document.getElementById("progressBar"),
   progressText: document.getElementById("progressText"),
+
+  detectedMonthsCount: document.getElementById("detectedMonthsCount"),
+  detectedPeriodCount: document.getElementById("detectedPeriodCount"),
+  missingPeriodCount: document.getElementById("missingPeriodCount"),
+  previewErrorCount: document.getElementById("previewErrorCount"),
+  periodStatus: document.getElementById("periodStatus"),
+  periodResultsBody: document.getElementById("periodResultsBody"),
+  previewStatus: document.getElementById("previewStatus"),
+  renamePreviewBody: document.getElementById("renamePreviewBody"),
+
   folderCount: document.getElementById("folderCount"),
   pdfCount: document.getElementById("pdfCount"),
   issueCount: document.getElementById("issueCount"),
@@ -50,9 +64,24 @@ let selectedSource = null;
 let generatedZipBlob = null;
 let generatedZipName = "";
 
+let previewRows = [];
+let previewByEntryKey = new Map();
+let previewReady = false;
+let periodSummary = createEmptyPeriodSummary();
+
+let isLoadingSource = false;
+let isPreviewing = false;
+let isProcessing = false;
+let previewRunId = 0;
+
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
+];
+
+const MONTH_NAMES_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ];
 
 /* ==========================================================
@@ -85,25 +114,53 @@ function setOverallStatus(kind, message) {
   elements.overallStatus.textContent = message;
 }
 
-function setBusyState(isBusy) {
-  elements.folderInput.disabled = isBusy;
-  elements.zipInput.disabled = isBusy;
-  elements.monthsInput.disabled = isBusy;
-  elements.structuredOption.disabled = isBusy;
-  elements.flatOption.disabled = isBusy;
-  elements.renameOption.disabled = isBusy;
-  elements.auditOption.disabled = isBusy;
-  elements.resetButton.disabled = isBusy;
+function setPeriodStatus(kind, message) {
+  elements.periodStatus.className = `status-callout ${kind}`;
+  elements.periodStatus.textContent = message;
+}
 
-  const analysis = analyzeEntries(selectedEntries);
-  elements.processButton.disabled =
-    isBusy || analysis.matchingEntries.length === 0;
+function setPreviewStatus(kind, message) {
+  elements.previewStatus.className = `status-callout ${kind}`;
+  elements.previewStatus.textContent = message;
 }
 
 function clearGeneratedOutput() {
   generatedZipBlob = null;
   generatedZipName = "";
   elements.downloadButton.disabled = true;
+}
+
+function updateControlState() {
+  const sourceLocked = isLoadingSource || isProcessing;
+
+  elements.folderInput.disabled = sourceLocked;
+  elements.zipInput.disabled = sourceLocked;
+  elements.monthsInput.disabled = isProcessing;
+  elements.structuredOption.disabled = isProcessing;
+  elements.flatOption.disabled = isProcessing;
+  elements.renameOption.disabled = isProcessing;
+  elements.auditOption.disabled = isProcessing;
+  elements.resetButton.disabled = isProcessing;
+
+  elements.dropZone.classList.toggle("is-busy", sourceLocked);
+
+  const baseAnalysis = analyzeEntries(selectedEntries);
+  elements.processButton.disabled =
+    sourceLocked
+    || isPreviewing
+    || !previewReady
+    || baseAnalysis.matchingEntries.length === 0;
+}
+
+function setEmptyTable(tbody, colSpan, message) {
+  tbody.replaceChildren();
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  cell.colSpan = colSpan;
+  cell.className = "empty-state";
+  cell.textContent = message;
+  row.appendChild(cell);
+  tbody.appendChild(row);
 }
 
 /* ==========================================================
@@ -115,6 +172,10 @@ function normalizePath(path) {
     .replace(/\\/g, "/")
     .replace(/^\/+/, "")
     .replace(/\/{2,}/g, "/");
+}
+
+function entryKey(entry) {
+  return normalizePath(entry.relativePath).toLowerCase();
 }
 
 function isValidDateFolderName(folderName) {
@@ -133,11 +194,8 @@ function isValidDateFolderName(folderName) {
 function getDatedFolder(relativePath) {
   const parts = normalizePath(relativePath).split("/").filter(Boolean);
 
-  // The PDF must be directly inside an 8-digit dated folder.
-  // This works for all of these:
-  //   GST Folder/20260430/file.pdf
-  //   Outer Folder/GST Folder/20260430/file.pdf
-  //   20260430/file.pdf
+  // Matching PDFs must be directly inside an 8-digit dated folder.
+  // Extra outer folders are allowed.
   if (parts.length < 2) {
     return null;
   }
@@ -155,7 +213,7 @@ function getDocumentType(fileName) {
 }
 
 /* ==========================================================
-   Original PDF date and unit extraction logic
+   Original reliable PDF date and unit extraction logic
    ========================================================== */
 
 function parseDocumentDate(dateText) {
@@ -306,8 +364,7 @@ function getDocumentPeriod(text, documentType) {
 }
 
 function getUnitNumber(fileName, text) {
-  // Use the original filename first. This prevents words such as ING or USX
-  // from being mistaken for the unit number.
+  // Keep the original successful logic: numeric unit from the filename first.
   const fileMatch = fileName.match(/^\d{8}_(\d+)_/);
   if (fileMatch) return fileMatch[1];
 
@@ -327,120 +384,298 @@ function buildRenamedFileName(period, unitNumber, documentType) {
 }
 
 /* ==========================================================
-   Source selection: normal folder
+   Pay-period helpers
    ========================================================== */
 
-function handleFolderSelection(event) {
-  const files = Array.from(event.target.files || []);
-
-  clearGeneratedOutput();
-  elements.zipInput.value = "";
-
-  if (!files.length) {
-    selectedEntries = [];
-    selectedSource = null;
-    refreshValidation();
-    return;
-  }
-
-  selectedEntries = files.map(file => ({
-    name: file.name,
-    relativePath: normalizePath(file.webkitRelativePath || file.name),
-    sourceType: "folder",
-    getArrayBuffer: () => file.arrayBuffer()
-  }));
-
-  const firstPath = selectedEntries[0].relativePath;
-  const rootFolder = firstPath.split("/")[0] || "Selected folder";
-
-  selectedSource = {
-    type: "folder",
-    name: rootFolder,
-    totalFiles: selectedEntries.length
-  };
-
-  elements.processingLog.textContent = "Ready.";
-  log(`Selected folder: ${rootFolder}`);
-  refreshValidation();
+function daysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-/* ==========================================================
-   Source selection: ZIP file
-   ========================================================== */
+function monthIndex(date) {
+  return (date.year * 12) + (date.month - 1);
+}
 
-async function handleZipSelection(event) {
-  const zipFile = event.target.files?.[0] || null;
+function monthFromIndex(index) {
+  return {
+    year: Math.floor(index / 12),
+    month: (index % 12) + 1
+  };
+}
 
-  clearGeneratedOutput();
-  elements.folderInput.value = "";
+function periodKey(period) {
+  return `${dateKey(period.startDate)}|${dateKey(period.endDate)}`;
+}
 
-  if (!zipFile) {
-    selectedEntries = [];
-    selectedSource = null;
-    refreshValidation();
-    return;
+function formatPeriodLabel(period) {
+  const start = period.startDate;
+  const end = period.endDate;
+
+  if (start.year === end.year && start.month === end.month) {
+    return `${MONTH_NAMES_SHORT[end.month - 1]} ${String(start.day).padStart(2, "0")}–${String(end.day).padStart(2, "0")}, ${end.year}`;
   }
 
-  if (!window.JSZip) {
-    setOverallStatus(
-      "error",
-      "JSZip did not load. Check your internet connection and reload the page."
-    );
-    return;
+  return `${dateKey(start)} to ${dateKey(end)}`;
+}
+
+function formatMonthLabel(year, month) {
+  return `${MONTH_NAMES[month - 1]} ${year}`;
+}
+
+function standardPeriodsForMonth(year, month) {
+  const lastDay = daysInMonth(year, month);
+
+  return [
+    {
+      startDate: { year, month, day: 1 },
+      endDate: { year, month, day: 15 }
+    },
+    {
+      startDate: { year, month, day: 16 },
+      endDate: { year, month, day: lastDay }
+    }
+  ];
+}
+
+function createEmptyPeriodSummary() {
+  return {
+    detectedMonths: 0,
+    detectedPeriodCount: 0,
+    expectedPeriodCount: 0,
+    missingPeriodCount: 0,
+    incompletePeriodCount: 0,
+    duplicatePeriodCount: 0,
+    nonStandardPeriodCount: 0,
+    previewErrorCount: 0,
+    rangeLabel: "",
+    rows: []
+  };
+}
+
+function buildPeriodSummary(rows) {
+  const summary = createEmptyPeriodSummary();
+  summary.previewErrorCount = rows.filter(row => row.status === "Error").length;
+
+  const successfulRows = rows.filter(
+    row => row.status === "Ready" && row.period
+  );
+
+  if (!successfulRows.length) {
+    return summary;
   }
 
-  setBusyState(true);
-  elements.progressText.textContent = "Reading ZIP file...";
-  elements.processingLog.textContent = "Ready.";
-  log(`Opening ZIP file: ${zipFile.name}`);
+  const actualPeriodMap = new Map();
 
-  try {
-    const inputZip = await window.JSZip.loadAsync(zipFile);
-    const entries = [];
+  for (const row of successfulRows) {
+    const key = periodKey(row.period);
 
-    for (const [path, zipEntry] of Object.entries(inputZip.files)) {
-      if (zipEntry.dir) continue;
-
-      const relativePath = normalizePath(path);
-      const parts = relativePath.split("/").filter(Boolean);
-      const fileName = parts[parts.length - 1] || relativePath;
-
-      entries.push({
-        name: fileName,
-        relativePath,
-        sourceType: "zip",
-        getArrayBuffer: () => zipEntry.async("arraybuffer")
+    if (!actualPeriodMap.has(key)) {
+      actualPeriodMap.set(key, {
+        period: row.period,
+        FUEL: [],
+        STATEMENT: [],
+        folders: new Set()
       });
     }
 
-    selectedEntries = entries;
-    selectedSource = {
-      type: "zip",
-      name: zipFile.name,
-      totalFiles: entries.length
-    };
+    const record = actualPeriodMap.get(key);
+    record[row.documentType].push(row);
+    record.folders.add(row.sourceFolder);
+  }
 
-    log(`ZIP contains ${entries.length} files.`);
-    refreshValidation();
-  } catch (error) {
-    selectedEntries = [];
-    selectedSource = null;
+  summary.detectedPeriodCount = actualPeriodMap.size;
 
-    const message = error instanceof Error
-      ? error.message
-      : String(error);
+  const endMonthIndexes = successfulRows.map(row => monthIndex(row.period.endDate));
+  const firstMonthIndex = Math.min(...endMonthIndexes);
+  const lastMonthIndex = Math.max(...endMonthIndexes);
+  summary.detectedMonths = (lastMonthIndex - firstMonthIndex) + 1;
 
-    setOverallStatus("error", `The ZIP file could not be read: ${message}`);
-    elements.selectionSummary.textContent = "No folder or ZIP file selected.";
-    log(`ERROR reading ZIP: ${message}`);
-  } finally {
-    setBusyState(false);
-    elements.progressText.textContent = "Ready";
+  const firstMonth = monthFromIndex(firstMonthIndex);
+  const lastMonth = monthFromIndex(lastMonthIndex);
+
+  summary.rangeLabel = firstMonthIndex === lastMonthIndex
+    ? formatMonthLabel(firstMonth.year, firstMonth.month)
+    : `${formatMonthLabel(firstMonth.year, firstMonth.month)} – ${formatMonthLabel(lastMonth.year, lastMonth.month)}`;
+
+  const expectedKeys = new Set();
+  const periodRows = [];
+
+  for (let index = firstMonthIndex; index <= lastMonthIndex; index += 1) {
+    const { year, month } = monthFromIndex(index);
+
+    for (const expectedPeriod of standardPeriodsForMonth(year, month)) {
+      const key = periodKey(expectedPeriod);
+      expectedKeys.add(key);
+
+      const actual = actualPeriodMap.get(key) || {
+        period: expectedPeriod,
+        FUEL: [],
+        STATEMENT: [],
+        folders: new Set()
+      };
+
+      const fuelCount = actual.FUEL.length;
+      const statementCount = actual.STATEMENT.length;
+
+      let status = "Complete";
+      let statusKind = "success";
+
+      if (fuelCount === 0 && statementCount === 0) {
+        status = "Missing period";
+        statusKind = "warning";
+        summary.missingPeriodCount += 1;
+      } else if (fuelCount === 0) {
+        status = "Missing FUEL";
+        statusKind = "warning";
+        summary.incompletePeriodCount += 1;
+      } else if (statementCount === 0) {
+        status = "Missing STATEMENT";
+        statusKind = "warning";
+        summary.incompletePeriodCount += 1;
+      } else if (fuelCount > 1 || statementCount > 1) {
+        status = "Duplicate files";
+        statusKind = "warning";
+        summary.duplicatePeriodCount += 1;
+      }
+
+      periodRows.push({
+        period: expectedPeriod,
+        fuelCount,
+        statementCount,
+        folders: [...actual.folders].sort(),
+        status,
+        statusKind,
+        isExpected: true
+      });
+    }
+  }
+
+  summary.expectedPeriodCount = periodRows.length;
+
+  for (const [key, actual] of actualPeriodMap.entries()) {
+    if (expectedKeys.has(key)) continue;
+
+    summary.nonStandardPeriodCount += 1;
+    periodRows.push({
+      period: actual.period,
+      fuelCount: actual.FUEL.length,
+      statementCount: actual.STATEMENT.length,
+      folders: [...actual.folders].sort(),
+      status: "Non-standard period",
+      statusKind: "warning",
+      isExpected: false
+    });
+  }
+
+  periodRows.sort((a, b) => {
+    const startCompare = compareDocumentDates(a.period.startDate, b.period.startDate);
+    if (startCompare !== 0) return startCompare;
+    return compareDocumentDates(a.period.endDate, b.period.endDate);
+  });
+
+  summary.rows = periodRows;
+  return summary;
+}
+
+function renderPeriodSummary(summary) {
+  elements.detectedMonthsCount.textContent = String(summary.detectedMonths);
+  elements.detectedPeriodCount.textContent = String(summary.detectedPeriodCount);
+  elements.missingPeriodCount.textContent = String(summary.missingPeriodCount);
+  elements.previewErrorCount.textContent = String(summary.previewErrorCount);
+
+  if (!summary.rows.length) {
+    setEmptyTable(elements.periodResultsBody, 5, "No periods detected yet.");
+
+    if (isPreviewing) {
+      setPeriodStatus("neutral", "Reading pay-period dates from the PDFs...");
+    } else if (summary.previewErrorCount > 0) {
+      setPeriodStatus(
+        "warning",
+        "No pay periods could be detected from the selected PDFs. Review the rename preview errors."
+      );
+    } else {
+      setPeriodStatus(
+        "neutral",
+        "Pay periods will be detected automatically after you select files."
+      );
+    }
+    return;
+  }
+
+  elements.periodResultsBody.replaceChildren();
+
+  for (const rowData of summary.rows) {
+    const row = document.createElement("tr");
+
+    const periodCell = document.createElement("td");
+    const periodChip = document.createElement("span");
+    periodChip.className = "period-chip";
+    periodChip.textContent = formatPeriodLabel(rowData.period);
+    periodCell.appendChild(periodChip);
+    row.appendChild(periodCell);
+
+    const fuelCell = document.createElement("td");
+    fuelCell.textContent = rowData.fuelCount === 0
+      ? "Missing"
+      : `Found (${rowData.fuelCount})`;
+    row.appendChild(fuelCell);
+
+    const statementCell = document.createElement("td");
+    statementCell.textContent = rowData.statementCount === 0
+      ? "Missing"
+      : `Found (${rowData.statementCount})`;
+    row.appendChild(statementCell);
+
+    const folderCell = document.createElement("td");
+    folderCell.textContent = rowData.folders.length
+      ? rowData.folders.join(", ")
+      : "—";
+    row.appendChild(folderCell);
+
+    const statusCell = document.createElement("td");
+    statusCell.className = `status-text ${rowData.statusKind}`;
+    statusCell.textContent = rowData.status;
+    row.appendChild(statusCell);
+
+    elements.periodResultsBody.appendChild(row);
+  }
+
+  const issues = [];
+
+  if (summary.missingPeriodCount > 0) {
+    issues.push(`${summary.missingPeriodCount} completely missing pay period(s)`);
+  }
+
+  if (summary.incompletePeriodCount > 0) {
+    issues.push(`${summary.incompletePeriodCount} incomplete pay period(s)`);
+  }
+
+  if (summary.duplicatePeriodCount > 0) {
+    issues.push(`${summary.duplicatePeriodCount} pay period(s) with duplicate files`);
+  }
+
+  if (summary.nonStandardPeriodCount > 0) {
+    issues.push(`${summary.nonStandardPeriodCount} non-standard pay period(s)`);
+  }
+
+  if (summary.previewErrorCount > 0) {
+    issues.push(`${summary.previewErrorCount} PDF analysis error(s)`);
+  }
+
+  if (!issues.length) {
+    setPeriodStatus(
+      "success",
+      `Detected ${summary.rangeLabel}: ${summary.detectedMonths} month(s) and ${summary.expectedPeriodCount} expected pay periods. All expected periods have both FUEL and STATEMENT files.`
+    );
+  } else {
+    setPeriodStatus(
+      "warning",
+      `Detected ${summary.rangeLabel}. Review needed: ${issues.join("; ")}.`
+    );
   }
 }
 
 /* ==========================================================
-   Validation
+   Base file validation
    ========================================================== */
 
 function analyzeEntries(entries) {
@@ -490,6 +725,48 @@ function analyzeEntries(entries) {
   };
 }
 
+function renderFolderValidation(folderMap) {
+  const entries = [...folderMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  elements.folderResultsBody.replaceChildren();
+
+  if (!entries.length) {
+    setEmptyTable(elements.folderResultsBody, 5, "No dated folders found.");
+    return 0;
+  }
+
+  let issueCount = 0;
+
+  for (const [folderName, counts] of entries) {
+    const passed = counts.FUEL === 1 && counts.STATEMENT === 1;
+    if (!passed) issueCount += 1;
+
+    const row = document.createElement("tr");
+
+    for (const value of [
+      folderName,
+      String(counts.FUEL),
+      String(counts.STATEMENT),
+      String(counts.total)
+    ]) {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    }
+
+    const statusCell = document.createElement("td");
+    statusCell.className =
+      `status-text ${passed ? "success" : "warning"}`;
+    statusCell.textContent = passed ? "Passed" : "Check files";
+    row.appendChild(statusCell);
+
+    elements.folderResultsBody.appendChild(row);
+  }
+
+  return issueCount;
+}
+
 function refreshValidation() {
   clearGeneratedOutput();
 
@@ -501,29 +778,45 @@ function refreshValidation() {
   elements.folderCount.textContent = String(datedFolderCount);
   elements.pdfCount.textContent = String(matchingCount);
   elements.issueCount.textContent = String(folderIssueCount);
-  elements.errorCount.textContent = "0";
+
+  if (!isProcessing) {
+    elements.errorCount.textContent = String(periodSummary.previewErrorCount || 0);
+  }
 
   if (!selectedSource) {
     elements.selectionSummary.textContent = "No folder or ZIP file selected.";
-    elements.processButton.disabled = true;
     setOverallStatus("neutral", "Select a folder or ZIP file to begin.");
+    updateControlState();
     return;
   }
 
-  const sourceLabel = selectedSource.type === "zip" ? "ZIP" : "Folder";
+  const sourceLabel = selectedSource.type === "zip"
+    ? "ZIP"
+    : selectedSource.type === "drop"
+      ? "Dropped folder"
+      : "Folder";
+
   elements.selectionSummary.textContent =
     `${sourceLabel}: ${selectedSource.name} — `
     + `${selectedSource.totalFiles} total files, `
     + `${matchingCount} matching PDFs, `
     + `${datedFolderCount} dated folders.`;
 
-  elements.processButton.disabled = matchingCount === 0;
-
   if (matchingCount === 0) {
     setOverallStatus(
       "warning",
       "No PDFs ending exactly in _FUEL.pdf or _STATEMENT.pdf were found directly inside valid 8-digit dated folders."
     );
+    updateControlState();
+    return;
+  }
+
+  if (isPreviewing) {
+    setOverallStatus(
+      "neutral",
+      `Found ${matchingCount} matching PDFs. Reading pay-period dates and preparing the rename preview...`
+    );
+    updateControlState();
     return;
   }
 
@@ -561,62 +854,540 @@ function refreshValidation() {
     );
   }
 
+  if (previewReady) {
+    if (periodSummary.missingPeriodCount > 0) {
+      messages.push(`${periodSummary.missingPeriodCount} pay period(s) are completely missing`);
+    }
+
+    if (periodSummary.incompletePeriodCount > 0) {
+      messages.push(`${periodSummary.incompletePeriodCount} pay period(s) are missing FUEL or STATEMENT`);
+    }
+
+    if (periodSummary.duplicatePeriodCount > 0) {
+      messages.push(`${periodSummary.duplicatePeriodCount} pay period(s) contain duplicate document types`);
+    }
+
+    if (periodSummary.previewErrorCount > 0) {
+      messages.push(`${periodSummary.previewErrorCount} PDF(s) could not be analyzed`);
+    }
+  }
+
   if (messages.length === 0) {
     setOverallStatus(
       "success",
-      `Validation passed: found ${datedFolderCount} dated folders and ${matchingCount} matching PDFs.`
+      `Validation passed: found ${datedFolderCount} dated folders and ${matchingCount} matching PDFs with all expected pay periods present.`
     );
   } else {
     setOverallStatus("warning", `Review needed: ${messages.join("; ")}.`);
   }
+
+  updateControlState();
 }
 
-function renderFolderValidation(folderMap) {
-  const entries = [...folderMap.entries()]
-    .sort(([a], [b]) => a.localeCompare(b));
+/* ==========================================================
+   Rename preview
+   ========================================================== */
 
-  elements.folderResultsBody.replaceChildren();
+function resetPreviewState() {
+  previewRows = [];
+  previewByEntryKey = new Map();
+  previewReady = false;
+  periodSummary = createEmptyPeriodSummary();
 
-  if (!entries.length) {
-    const row = document.createElement("tr");
-    const cell = document.createElement("td");
-    cell.colSpan = 5;
-    cell.className = "empty-state";
-    cell.textContent = "No dated folders found.";
-    row.appendChild(cell);
-    elements.folderResultsBody.appendChild(row);
-    return 0;
+  elements.detectedMonthsCount.textContent = "0";
+  elements.detectedPeriodCount.textContent = "0";
+  elements.missingPeriodCount.textContent = "0";
+  elements.previewErrorCount.textContent = "0";
+
+  setEmptyTable(elements.periodResultsBody, 5, "No periods detected yet.");
+  setEmptyTable(elements.renamePreviewBody, 6, "No rename preview yet.");
+
+  setPeriodStatus(
+    "neutral",
+    "Pay periods will be detected automatically after you select files."
+  );
+
+  setPreviewStatus(
+    "neutral",
+    "Select a folder or ZIP to preview the detected dates and filenames."
+  );
+}
+
+function renderRenamePreview(rows) {
+  if (!rows.length) {
+    setEmptyTable(elements.renamePreviewBody, 6, "No matching PDFs were available for the rename preview.");
+    return;
   }
 
-  let issueCount = 0;
-
-  for (const [folderName, counts] of entries) {
-    const passed = counts.FUEL === 1 && counts.STATEMENT === 1;
-    if (!passed) issueCount += 1;
-
-    const row = document.createElement("tr");
-
-    for (const value of [
-      folderName,
-      String(counts.FUEL),
-      String(counts.STATEMENT),
-      String(counts.total)
-    ]) {
-      const cell = document.createElement("td");
-      cell.textContent = value;
-      row.appendChild(cell);
+  const sortedRows = [...rows].sort((a, b) => {
+    if (a.period && b.period) {
+      const dateCompare = compareDocumentDates(a.period.startDate, b.period.startDate);
+      if (dateCompare !== 0) return dateCompare;
+    } else if (a.period && !b.period) {
+      return -1;
+    } else if (!a.period && b.period) {
+      return 1;
     }
 
+    const folderCompare = a.sourceFolder.localeCompare(b.sourceFolder);
+    if (folderCompare !== 0) return folderCompare;
+    return a.originalFile.localeCompare(b.originalFile);
+  });
+
+  elements.renamePreviewBody.replaceChildren();
+
+  for (const rowData of sortedRows) {
+    const row = document.createElement("tr");
+
+    const folderCell = document.createElement("td");
+    folderCell.textContent = rowData.sourceFolder;
+    row.appendChild(folderCell);
+
+    const originalCell = document.createElement("td");
+    originalCell.textContent = rowData.originalFile;
+    row.appendChild(originalCell);
+
+    const periodCell = document.createElement("td");
+    periodCell.textContent = rowData.period
+      ? formatPeriodLabel(rowData.period)
+      : "Not detected";
+    row.appendChild(periodCell);
+
+    const unitCell = document.createElement("td");
+    unitCell.textContent = rowData.unitNumber || "—";
+    row.appendChild(unitCell);
+
+    const proposedCell = document.createElement("td");
+    proposedCell.textContent = rowData.proposedFileName || "—";
+    row.appendChild(proposedCell);
+
     const statusCell = document.createElement("td");
-    statusCell.className =
-      `status-text ${passed ? "success" : "warning"}`;
-    statusCell.textContent = passed ? "Passed" : "Check files";
+    statusCell.className = `status-text ${rowData.status === "Ready" ? "success" : "error"}`;
+    statusCell.textContent = rowData.status === "Ready"
+      ? "Ready"
+      : `Error: ${rowData.message}`;
     row.appendChild(statusCell);
 
-    elements.folderResultsBody.appendChild(row);
+    elements.renamePreviewBody.appendChild(row);
+  }
+}
+
+async function analyzeSelectedSourceForPreview() {
+  const analysis = analyzeEntries(selectedEntries);
+
+  if (!selectedSource || !analysis.matchingEntries.length) {
+    resetPreviewState();
+    refreshValidation();
+    return;
   }
 
-  return issueCount;
+  if (!window.pdfjsLib) {
+    previewReady = false;
+    setPreviewStatus(
+      "error",
+      "PDF.js did not load, so the pay periods and renamed filenames cannot be previewed."
+    );
+    setPeriodStatus(
+      "error",
+      "PDF.js did not load, so automatic pay-period detection is unavailable."
+    );
+    updateControlState();
+    return;
+  }
+
+  const thisRunId = previewRunId;
+  isPreviewing = true;
+  clearGeneratedOutput();
+  previewReady = false;
+  previewRows = [];
+  previewByEntryKey = new Map();
+  periodSummary = createEmptyPeriodSummary();
+
+  setPreviewStatus("neutral", "Reading PDF dates and preparing the rename preview...");
+  setPeriodStatus("neutral", "Reading pay-period dates from the PDFs...");
+  elements.processingLog.textContent = "Ready.";
+  log(`Analyzing ${analysis.matchingEntries.length} matching PDFs for period dates and rename preview.`);
+  refreshValidation();
+  updateControlState();
+
+  const rows = [];
+
+  for (let index = 0; index < analysis.matchingEntries.length; index += 1) {
+    if (thisRunId !== previewRunId) {
+      return;
+    }
+
+    const entry = analysis.matchingEntries[index];
+
+    setProgress(
+      index,
+      Math.max(analysis.matchingEntries.length, 1),
+      `Analyzing ${index + 1} of ${analysis.matchingEntries.length}: ${entry.name}`
+    );
+
+    try {
+      const sourceBuffer = await entry.getArrayBuffer();
+      const sourceBytes = new Uint8Array(sourceBuffer);
+      const text = await extractPdfText(sourceBytes.slice());
+      const period = getDocumentPeriod(text, entry.documentType);
+
+      if (!period) {
+        throw new Error("Period start and end dates were not detected.");
+      }
+
+      if (compareDocumentDates(period.startDate, period.endDate) > 0) {
+        throw new Error("Detected period start is after period end.");
+      }
+
+      const unitNumber = getUnitNumber(entry.name, text);
+      const proposedFileName = buildRenamedFileName(
+        period,
+        unitNumber,
+        entry.documentType
+      );
+
+      rows.push({
+        entryKey: entryKey(entry),
+        relativePath: entry.relativePath,
+        sourceFolder: entry.sourceFolder,
+        originalFile: entry.name,
+        documentType: entry.documentType,
+        period,
+        unitNumber,
+        detectionMethod: period.method,
+        proposedFileName,
+        status: "Ready",
+        message: ""
+      });
+
+      log(
+        `Preview ${entry.relativePath} -> ${proposedFileName} `
+        + `(${dateKey(period.startDate)} to ${dateKey(period.endDate)})`
+      );
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : String(error);
+
+      rows.push({
+        entryKey: entryKey(entry),
+        relativePath: entry.relativePath,
+        sourceFolder: entry.sourceFolder,
+        originalFile: entry.name,
+        documentType: entry.documentType,
+        period: null,
+        unitNumber: "",
+        detectionMethod: "",
+        proposedFileName: "",
+        status: "Error",
+        message
+      });
+
+      log(`PREVIEW ERROR ${entry.relativePath}: ${message}`);
+    }
+  }
+
+  if (thisRunId !== previewRunId) {
+    return;
+  }
+
+  previewRows = rows;
+  previewByEntryKey = new Map(
+    rows.map(row => [row.entryKey, row])
+  );
+  previewReady = true;
+  periodSummary = buildPeriodSummary(rows);
+
+  if (periodSummary.detectedMonths > 0) {
+    elements.monthsInput.value = String(periodSummary.detectedMonths);
+    elements.monthsHelper.textContent =
+      `Auto-detected ${periodSummary.detectedMonths} month(s) from PDF pay periods (${periodSummary.rangeLabel}). You can override this value.`;
+  } else {
+    elements.monthsHelper.textContent =
+      "The month count could not be detected from the PDFs. Enter the expected number of months manually.";
+  }
+
+  renderRenamePreview(rows);
+  renderPeriodSummary(periodSummary);
+
+  const readyCount = rows.filter(row => row.status === "Ready").length;
+  const errorCount = rows.length - readyCount;
+
+  if (errorCount === 0) {
+    setPreviewStatus(
+      "success",
+      `${readyCount} PDF(s) analyzed successfully. Review the proposed filenames below before creating the output ZIP.`
+    );
+  } else {
+    setPreviewStatus(
+      "warning",
+      `${readyCount} PDF(s) are ready to rename and ${errorCount} PDF(s) could not be analyzed. Files with preview errors will not be renamed or added to the output while renaming is enabled.`
+    );
+  }
+
+  isPreviewing = false;
+  setProgress(1, 1, "Preview ready");
+  refreshValidation();
+  updateControlState();
+}
+
+/* ==========================================================
+   Source selection: normal folder
+   ========================================================== */
+
+async function commitSelectedEntries(entries, source) {
+  previewRunId += 1;
+  clearGeneratedOutput();
+  resetPreviewState();
+
+  selectedEntries = entries;
+  selectedSource = source;
+
+  elements.processingLog.textContent = "Ready.";
+  log(`Selected ${source.type}: ${source.name}`);
+  refreshValidation();
+
+  await analyzeSelectedSourceForPreview();
+}
+
+async function handleFolderSelection(event) {
+  const files = Array.from(event.target.files || []);
+  elements.zipInput.value = "";
+
+  if (!files.length) {
+    previewRunId += 1;
+    selectedEntries = [];
+    selectedSource = null;
+    resetPreviewState();
+    refreshValidation();
+    return;
+  }
+
+  const entries = files.map(file => ({
+    name: file.name,
+    relativePath: normalizePath(file.webkitRelativePath || file.name),
+    sourceType: "folder",
+    getArrayBuffer: () => file.arrayBuffer()
+  }));
+
+  const firstPath = entries[0].relativePath;
+  const rootFolder = firstPath.split("/")[0] || "Selected folder";
+
+  await commitSelectedEntries(entries, {
+    type: "folder",
+    name: rootFolder,
+    totalFiles: entries.length
+  });
+}
+
+/* ==========================================================
+   Source selection: ZIP file
+   ========================================================== */
+
+async function loadZipFile(zipFile, sourceType = "zip") {
+  if (!zipFile) return;
+
+  if (!window.JSZip) {
+    setOverallStatus(
+      "error",
+      "JSZip did not load. Check your internet connection and reload the page."
+    );
+    return;
+  }
+
+  previewRunId += 1;
+  isLoadingSource = true;
+  updateControlState();
+  clearGeneratedOutput();
+  resetPreviewState();
+  elements.processingLog.textContent = "Ready.";
+  setProgress(0, 1, "Reading ZIP file...");
+  log(`Opening ZIP file: ${zipFile.name}`);
+
+  try {
+    const inputZip = await window.JSZip.loadAsync(zipFile);
+    const entries = [];
+
+    for (const [path, zipEntry] of Object.entries(inputZip.files)) {
+      if (zipEntry.dir) continue;
+
+      const relativePath = normalizePath(path);
+      const parts = relativePath.split("/").filter(Boolean);
+      const fileName = parts[parts.length - 1] || relativePath;
+
+      entries.push({
+        name: fileName,
+        relativePath,
+        sourceType: "zip",
+        getArrayBuffer: () => zipEntry.async("arraybuffer")
+      });
+    }
+
+    log(`ZIP contains ${entries.length} files.`);
+
+    isLoadingSource = false;
+    updateControlState();
+
+    await commitSelectedEntries(entries, {
+      type: sourceType,
+      name: zipFile.name,
+      totalFiles: entries.length
+    });
+  } catch (error) {
+    selectedEntries = [];
+    selectedSource = null;
+
+    const message = error instanceof Error
+      ? error.message
+      : String(error);
+
+    setOverallStatus("error", `The ZIP file could not be read: ${message}`);
+    elements.selectionSummary.textContent = "No folder or ZIP file selected.";
+    log(`ERROR reading ZIP: ${message}`);
+  } finally {
+    isLoadingSource = false;
+    updateControlState();
+  }
+}
+
+async function handleZipSelection(event) {
+  const zipFile = event.target.files?.[0] || null;
+  elements.folderInput.value = "";
+
+  if (!zipFile) {
+    previewRunId += 1;
+    selectedEntries = [];
+    selectedSource = null;
+    resetPreviewState();
+    refreshValidation();
+    return;
+  }
+
+  await loadZipFile(zipFile, "zip");
+}
+
+/* ==========================================================
+   Drag-and-drop folder / ZIP support
+   ========================================================== */
+
+function getFileFromEntry(fileEntry) {
+  return new Promise((resolve, reject) => {
+    fileEntry.file(resolve, reject);
+  });
+}
+
+function readDirectoryBatch(reader) {
+  return new Promise((resolve, reject) => {
+    reader.readEntries(resolve, reject);
+  });
+}
+
+async function collectDroppedEntry(fileSystemEntry, parentPath, collected) {
+  if (fileSystemEntry.isFile) {
+    const file = await getFileFromEntry(fileSystemEntry);
+    const relativePath = normalizePath(`${parentPath}${fileSystemEntry.name}`);
+
+    collected.push({
+      name: file.name,
+      relativePath,
+      sourceType: "drop",
+      getArrayBuffer: () => file.arrayBuffer()
+    });
+    return;
+  }
+
+  if (!fileSystemEntry.isDirectory) {
+    return;
+  }
+
+  const directoryPath = `${parentPath}${fileSystemEntry.name}/`;
+  const reader = fileSystemEntry.createReader();
+
+  while (true) {
+    const batch = await readDirectoryBatch(reader);
+    if (!batch.length) break;
+
+    for (const child of batch) {
+      await collectDroppedEntry(child, directoryPath, collected);
+    }
+  }
+}
+
+async function handleDrop(event) {
+  event.preventDefault();
+  elements.dropZone.classList.remove("drag-over");
+
+  if (isLoadingSource || isProcessing) {
+    return;
+  }
+
+  elements.folderInput.value = "";
+  elements.zipInput.value = "";
+
+  const dataTransfer = event.dataTransfer;
+  const items = Array.from(dataTransfer?.items || []);
+  const fileSystemEntries = items
+    .map(item => {
+      if (typeof item.webkitGetAsEntry === "function") {
+        return item.webkitGetAsEntry();
+      }
+      return null;
+    })
+    .filter(Boolean);
+
+  try {
+    if (fileSystemEntries.length === 1 && fileSystemEntries[0].isFile) {
+      const droppedFile = await getFileFromEntry(fileSystemEntries[0]);
+
+      if (/\.zip$/i.test(droppedFile.name)) {
+        await loadZipFile(droppedFile, "zip");
+        return;
+      }
+    }
+
+    const directoryEntries = fileSystemEntries.filter(entry => entry.isDirectory);
+
+    if (directoryEntries.length > 0) {
+      const collected = [];
+
+      setProgress(0, 1, "Reading dropped folder...");
+      log("Reading dropped folder contents...");
+
+      for (const fileSystemEntry of fileSystemEntries) {
+        await collectDroppedEntry(fileSystemEntry, "", collected);
+      }
+
+      const sourceName = directoryEntries.length === 1
+        ? directoryEntries[0].name
+        : `${directoryEntries.length} dropped folders`;
+
+      await commitSelectedEntries(collected, {
+        type: "drop",
+        name: sourceName,
+        totalFiles: collected.length
+      });
+      return;
+    }
+
+    const droppedFiles = Array.from(dataTransfer?.files || []);
+
+    if (droppedFiles.length === 1 && /\.zip$/i.test(droppedFiles[0].name)) {
+      await loadZipFile(droppedFiles[0], "zip");
+      return;
+    }
+
+    setOverallStatus(
+      "warning",
+      "That drag-and-drop selection did not include a readable folder or ZIP. Use Choose GST parent folder if your browser does not support folder drag-and-drop."
+    );
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : String(error);
+
+    setOverallStatus("error", `The dropped folder could not be read: ${message}`);
+    log(`ERROR reading dropped folder: ${message}`);
+  }
 }
 
 /* ==========================================================
@@ -710,7 +1481,7 @@ function makeUniqueZipPath(basePath, usedPaths, sourceFolder) {
 }
 
 /* ==========================================================
-   Main processing
+   Main output processing
    ========================================================== */
 
 async function processSelectedSource() {
@@ -718,6 +1489,14 @@ async function processSelectedSource() {
 
   if (!selectedSource || !analysis.matchingEntries.length) {
     setOverallStatus("warning", "Choose a GST parent folder or ZIP file first.");
+    return;
+  }
+
+  if (!previewReady) {
+    setOverallStatus(
+      "warning",
+      "Wait for automatic pay-period detection and the rename preview to finish first."
+    );
     return;
   }
 
@@ -737,14 +1516,6 @@ async function processSelectedSource() {
     return;
   }
 
-  if (elements.renameOption.checked && !window.pdfjsLib) {
-    setOverallStatus(
-      "error",
-      "PDF.js did not load. Check your internet connection and reload the page."
-    );
-    return;
-  }
-
   const expectedMonths = Number(elements.monthsInput.value);
 
   if (!Number.isInteger(expectedMonths) || expectedMonths < 1) {
@@ -754,17 +1525,19 @@ async function processSelectedSource() {
 
   clearGeneratedOutput();
   elements.processingLog.textContent = "Ready.";
-  setBusyState(true);
-  setOverallStatus("neutral", "Processing files...");
+  isProcessing = true;
+  updateControlState();
+  setOverallStatus("neutral", "Creating output ZIP...");
 
   const zip = new window.JSZip();
   const usedZipPaths = new Set();
   const auditRows = [];
   let processingErrors = 0;
+  let processedCount = 0;
 
   log(
     `Selected ${selectedSource.type}: ${selectedSource.name}. `
-    + `Processing ${analysis.matchingEntries.length} matching PDFs.`
+    + `Creating output from ${analysis.matchingEntries.length} matching PDFs.`
   );
 
   for (
@@ -773,6 +1546,7 @@ async function processSelectedSource() {
     index += 1
   ) {
     const entry = analysis.matchingEntries[index];
+    const preview = previewByEntryKey.get(entryKey(entry));
     const relativePath = entry.relativePath;
     const sourceFolder = entry.sourceFolder;
     const documentType = entry.documentType;
@@ -780,44 +1554,27 @@ async function processSelectedSource() {
     setProgress(
       index,
       Math.max(analysis.matchingEntries.length, 1),
-      `Reviewing ${index + 1} of ${analysis.matchingEntries.length}: ${entry.name}`
+      `Adding ${index + 1} of ${analysis.matchingEntries.length}: ${entry.name}`
     );
 
     let outputFileName = entry.name;
-    let period = null;
-    let unitNumber = "";
-    let detectionMethod = "Not requested";
+    let period = preview?.period || null;
+    let unitNumber = preview?.unitNumber || "";
+    let detectionMethod = preview?.detectionMethod || "Not detected";
 
     try {
+      if (elements.renameOption.checked) {
+        if (!preview || preview.status !== "Ready") {
+          throw new Error(
+            preview?.message || "The rename preview was not available for this PDF."
+          );
+        }
+
+        outputFileName = preview.proposedFileName;
+      }
+
       const sourceBuffer = await entry.getArrayBuffer();
       const sourceBytes = new Uint8Array(sourceBuffer);
-
-      if (elements.renameOption.checked) {
-        // Use a copy for PDF.js so the original bytes remain available
-        // for the output ZIP.
-        const text = await extractPdfText(sourceBytes.slice());
-        period = getDocumentPeriod(text, documentType);
-
-        if (!period) {
-          throw new Error(
-            "Period start and end dates were not detected."
-          );
-        }
-
-        if (compareDocumentDates(period.startDate, period.endDate) > 0) {
-          throw new Error(
-            "Detected period start is after period end."
-          );
-        }
-
-        unitNumber = getUnitNumber(entry.name, text);
-        detectionMethod = period.method;
-        outputFileName = buildRenamedFileName(
-          period,
-          unitNumber,
-          documentType
-        );
-      }
 
       if (elements.structuredOption.checked) {
         const structuredPath = makeUniqueZipPath(
@@ -855,9 +1612,8 @@ async function processSelectedSource() {
         message: ""
       });
 
-      log(
-        `Processed ${relativePath} -> ${outputFileName}`
-      );
+      processedCount += 1;
+      log(`Processed ${relativePath} -> ${outputFileName}`);
     } catch (error) {
       processingErrors += 1;
       const message = error instanceof Error
@@ -872,10 +1628,10 @@ async function processSelectedSource() {
         originalFile: entry.name,
         outputFile: "",
         documentType,
-        periodStart: "",
-        periodEnd: "",
-        unitNumber: "",
-        detectionMethod: "",
+        periodStart: period ? dateKey(period.startDate) : "",
+        periodEnd: period ? dateKey(period.endDate) : "",
+        unitNumber,
+        detectionMethod,
         status: "Error",
         message
       });
@@ -913,13 +1669,20 @@ async function processSelectedSource() {
     );
   }
 
+  const periodChecksPassed =
+    periodSummary.missingPeriodCount === 0
+    && periodSummary.incompletePeriodCount === 0
+    && periodSummary.duplicatePeriodCount === 0;
+
   const countChecksPassed =
     datedFolderCount === expectedFolderCount
     && matchingCount === expectedPdfCount;
+
   const allChecksPassed =
     countChecksPassed
     && folderIssueCount === 0
-    && processingErrors === 0;
+    && processingErrors === 0
+    && periodChecksPassed;
 
   log(
     `Expected ${expectedFolderCount} dated folders and `
@@ -929,13 +1692,12 @@ async function processSelectedSource() {
     `Found ${datedFolderCount} dated folders and `
     + `${matchingCount} matching PDFs.`
   );
+  log(`Added ${processedCount} PDFs to the output ZIP.`);
 
   if (allChecksPassed) {
     setOverallStatus(
       "success",
-      `Passed: found ${datedFolderCount} dated folders and `
-      + `${matchingCount} matching PDFs, with 1 FUEL and 1 STATEMENT `
-      + "in every folder."
+      `Passed: ${datedFolderCount} dated folders, ${matchingCount} matching PDFs, and all expected pay periods are complete. Output ZIP is being built.`
     );
   } else {
     const messages = [];
@@ -958,13 +1720,25 @@ async function processSelectedSource() {
       );
     }
 
+    if (periodSummary.missingPeriodCount > 0) {
+      messages.push(`${periodSummary.missingPeriodCount} pay period(s) are completely missing`);
+    }
+
+    if (periodSummary.incompletePeriodCount > 0) {
+      messages.push(`${periodSummary.incompletePeriodCount} pay period(s) are incomplete`);
+    }
+
+    if (periodSummary.duplicatePeriodCount > 0) {
+      messages.push(`${periodSummary.duplicatePeriodCount} pay period(s) have duplicate files`);
+    }
+
     if (processingErrors > 0) {
       messages.push(`${processingErrors} PDF processing error(s)`);
     }
 
     setOverallStatus(
       "warning",
-      `Review needed: ${messages.join("; ")}.`
+      `Review needed: ${messages.join("; ")}. Output ZIP is being built with the files that processed successfully.`
     );
   }
 
@@ -995,8 +1769,8 @@ async function processSelectedSource() {
       .slice(0, 15);
 
     generatedZipName = `GST_FUEL_STATEMENT_${stamp}.zip`;
-    elements.downloadButton.disabled = false;
-    setProgress(1, 1, "Ready to download");
+    elements.downloadButton.disabled = processedCount === 0;
+    setProgress(1, 1, processedCount > 0 ? "Ready to download" : "No files processed");
     log(`ZIP ready: ${generatedZipName}`);
   } catch (error) {
     processingErrors += 1;
@@ -1012,7 +1786,8 @@ async function processSelectedSource() {
     );
     log(`ERROR building ZIP: ${message}`);
   } finally {
-    setBusyState(false);
+    isProcessing = false;
+    updateControlState();
   }
 }
 
@@ -1040,8 +1815,7 @@ function resetResults() {
   elements.pdfCount.textContent = "0";
   elements.issueCount.textContent = "0";
   elements.errorCount.textContent = "0";
-  elements.folderResultsBody.innerHTML =
-    '<tr><td colspan="5" class="empty-state">No results yet.</td></tr>';
+  setEmptyTable(elements.folderResultsBody, 5, "No results yet.");
   elements.processingLog.textContent = "Ready.";
   elements.progressBar.value = 0;
   elements.progressText.textContent = "Ready";
@@ -1049,9 +1823,13 @@ function resetResults() {
 }
 
 function resetApplication() {
+  previewRunId += 1;
+
   elements.folderInput.value = "";
   elements.zipInput.value = "";
   elements.monthsInput.value = DEFAULT_MONTHS;
+  elements.monthsHelper.textContent =
+    "Automatically updated after the PDF pay periods are detected. You can still override the value.";
   elements.structuredOption.checked = true;
   elements.flatOption.checked = true;
   elements.renameOption.checked = true;
@@ -1059,12 +1837,17 @@ function resetApplication() {
 
   selectedEntries = [];
   selectedSource = null;
+  isLoadingSource = false;
+  isPreviewing = false;
+  isProcessing = false;
 
   elements.selectionSummary.textContent =
     "No folder or ZIP file selected.";
-  elements.processButton.disabled = true;
+  elements.dropZone.classList.remove("drag-over", "is-busy");
 
+  resetPreviewState();
   resetResults();
+  updateControlState();
 }
 
 if (elements.pennerLogo && elements.logoFallback) {
@@ -1081,10 +1864,44 @@ if (elements.pennerLogo && elements.logoFallback) {
 
 elements.folderInput.addEventListener("change", handleFolderSelection);
 elements.zipInput.addEventListener("change", handleZipSelection);
-elements.monthsInput.addEventListener("input", refreshValidation);
+
+elements.monthsInput.addEventListener("input", () => {
+  elements.monthsHelper.textContent =
+    `Manual expected-month setting: ${elements.monthsInput.value || "—"}. Select new files to auto-detect again.`;
+  refreshValidation();
+});
+
 elements.processButton.addEventListener("click", processSelectedSource);
 elements.downloadButton.addEventListener("click", downloadGeneratedZip);
 elements.resetButton.addEventListener("click", resetApplication);
+
+elements.dropZone.addEventListener("dragenter", event => {
+  event.preventDefault();
+  if (!isProcessing && !isLoadingSource) {
+    elements.dropZone.classList.add("drag-over");
+  }
+});
+
+elements.dropZone.addEventListener("dragover", event => {
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "copy";
+  }
+  if (!isProcessing && !isLoadingSource) {
+    elements.dropZone.classList.add("drag-over");
+  }
+});
+
+elements.dropZone.addEventListener("dragleave", event => {
+  if (!elements.dropZone.contains(event.relatedTarget)) {
+    elements.dropZone.classList.remove("drag-over");
+  }
+});
+
+elements.dropZone.addEventListener("drop", handleDrop);
+
+resetPreviewState();
+updateControlState();
 
 if (!window.JSZip || !window.pdfjsLib) {
   setOverallStatus(
