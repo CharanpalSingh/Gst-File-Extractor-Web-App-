@@ -16,7 +16,7 @@
 
   <title>GST FUEL and STATEMENT File Extractor</title>
 
-  <link rel="stylesheet" href="styles.css?v=5-help">
+  <link rel="stylesheet" href="styles.css?v=5-help-unified">
 </head>
 
 <body>
@@ -85,20 +85,20 @@
 
       <div
         id="dropZone"
-        class="drop-zone"
-        aria-label="Drag and drop a GST folder or ZIP file"
+        class="drop-zone unified-source-zone"
+        aria-label="Drag and drop a GST folder or ZIP file, or choose one using the buttons"
       >
-        <strong>Drag &amp; drop a GST folder or ZIP here</strong>
-        <span>or use one of the selection options below</span>
-      </div>
+        <div class="drop-zone-icon" aria-hidden="true">&#8681;</div>
 
-      <div class="source-options">
-        <div class="source-option">
-          <label class="file-picker" for="folderInput">
-            <span>Choose GST parent folder</span>
+        <strong>Drop a GST folder or ZIP here</strong>
+        <span class="drop-zone-subtitle">or choose how you want to open the files</span>
 
+        <div class="source-drop-actions">
+          <label class="source-choice-button" for="folderInput">
+            <span>Choose folder</span>
             <input
               id="folderInput"
+              class="visually-hidden-file-input"
               type="file"
               webkitdirectory
               directory
@@ -107,27 +107,21 @@
             >
           </label>
 
-          <p class="helper">
-            Choose the parent folder containing the 8-digit dated folders.
-          </p>
-        </div>
-
-        <div class="source-option">
-          <label class="file-picker" for="zipInput">
-            <span>Or choose a GST ZIP file</span>
-
+          <label class="source-choice-button secondary-choice" for="zipInput">
+            <span>Choose ZIP</span>
             <input
               id="zipInput"
+              class="visually-hidden-file-input"
               type="file"
               accept=".zip,application/zip,application/x-zip-compressed"
             >
           </label>
-
-          <p class="helper">
-            The ZIP can contain an outer folder. Matching PDFs must be directly
-            inside an 8-digit dated folder.
-          </p>
         </div>
+
+        <span class="drop-zone-note">
+          Select the parent folder containing the 8-digit dated folders, or a ZIP
+          containing the same folder structure.
+        </span>
       </div>
 
       <p
@@ -528,7 +522,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="app.js?v=5-help"></script>
+  <script src="app.js?v=5-help-unified"></script>
 </body>
 
 </html>
