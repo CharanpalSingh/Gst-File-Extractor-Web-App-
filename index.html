@@ -11,12 +11,12 @@
 
   <meta
     name="description"
-    content="Extract, validate, rename, and package complete Penner FUEL and STATEMENT PDFs from dated GST folders or a GST ZIP file."
+    content="Extract, validate, preview renaming, detect pay periods, and package Penner FUEL and STATEMENT PDFs from dated GST folders or ZIP files."
   >
 
   <title>GST FUEL and STATEMENT File Extractor</title>
 
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=5-help-unified">
 </head>
 
 <body>
@@ -29,14 +29,14 @@
         <h1>GST FUEL and STATEMENT File Extractor</h1>
 
         <p class="subtitle">
-          Select a parent folder or ZIP file containing dated folders such as
+          Select, drag and drop, or open a ZIP containing dated folders such as
           <code>20260430</code>. Processing happens in your browser.
         </p>
 
         <p class="app-description">
-          Extract, validate, rename, and organize Penner FUEL and STATEMENT PDFs.
-          The tool checks each dated folder and creates structured or flat ZIP
-          outputs without uploading your documents.
+          The tool validates FUEL and STATEMENT PDFs, reads their pay-period dates,
+          previews the renamed files, detects missing periods, and creates structured
+          or flat ZIP outputs without uploading your documents.
         </p>
       </div>
 
@@ -63,19 +63,42 @@
         >
           Get statements from here
         </a>
+
+        <button
+          id="helpButton"
+          type="button"
+          class="help-button"
+          aria-haspopup="dialog"
+          aria-controls="helpModal"
+        >
+          ? How to use
+        </button>
       </div>
     </header>
 
+    <!-- =====================================================
+         1. Source selection
+         ===================================================== -->
+
     <section class="panel" aria-labelledby="sourceHeading">
-      <h2 id="sourceHeading">1. Select a folder or ZIP file</h2>
+      <h2 id="sourceHeading">1. Select GST files</h2>
 
-      <div class="source-options">
-        <div class="source-option">
-          <label class="file-picker" for="folderInput">
-            <span>Choose GST parent folder</span>
+      <div
+        id="dropZone"
+        class="drop-zone unified-source-zone"
+        aria-label="Drag and drop a GST folder or ZIP file, or choose one using the buttons"
+      >
+        <div class="drop-zone-icon" aria-hidden="true">&#8681;</div>
 
+        <strong>Drop a GST folder or ZIP here</strong>
+        <span class="drop-zone-subtitle">or choose how you want to open the files</span>
+
+        <div class="source-drop-actions">
+          <label class="source-choice-button" for="folderInput">
+            <span>Choose folder</span>
             <input
               id="folderInput"
+              class="visually-hidden-file-input"
               type="file"
               webkitdirectory
               directory
@@ -84,37 +107,35 @@
             >
           </label>
 
-          <p class="helper">
-            Choose the parent folder containing the 8-digit dated folders.
-          </p>
-        </div>
-
-        <div class="source-option">
-          <label class="file-picker" for="zipInput">
-            <span>Or choose a GST ZIP file</span>
-
+          <label class="source-choice-button secondary-choice" for="zipInput">
+            <span>Choose ZIP</span>
             <input
               id="zipInput"
+              class="visually-hidden-file-input"
               type="file"
               accept=".zip,application/zip,application/x-zip-compressed"
             >
           </label>
-
-          <p class="helper">
-            The ZIP can contain an outer folder. Each matching PDF must be
-            directly inside an 8-digit dated folder.
-          </p>
         </div>
+
+        <span class="drop-zone-note">
+          Select the parent folder containing the 8-digit dated folders, or a ZIP
+          containing the same folder structure.
+        </span>
       </div>
 
       <p
         id="selectionSummary"
-        class="helper"
+        class="helper selection-summary"
         aria-live="polite"
       >
         No folder or ZIP file selected.
       </p>
     </section>
+
+    <!-- =====================================================
+         2. Processing options
+         ===================================================== -->
 
     <section class="panel" aria-labelledby="settingsHeading">
       <h2 id="settingsHeading">2. Processing options</h2>
@@ -131,8 +152,9 @@
             value="3"
           >
 
-          <span class="helper">
-            Normally 2 dated folders and 4 PDFs per month.
+          <span id="monthsHelper" class="helper">
+            Automatically updated after the PDF pay periods are detected. You can
+            still override the value.
           </span>
         </label>
 
@@ -191,7 +213,7 @@
           type="button"
           disabled
         >
-          Process selected source
+          Create output ZIP
         </button>
 
         <button
@@ -214,9 +236,112 @@
       </div>
     </section>
 
+    <!-- =====================================================
+         3. Automatic pay-period detection
+         ===================================================== -->
+
+    <section class="panel" aria-labelledby="periodHeading">
+      <div class="section-heading-row">
+        <h2 id="periodHeading">3. Detected pay periods</h2>
+      </div>
+
+      <div class="summary-grid period-summary-grid" aria-live="polite">
+        <article class="summary-card">
+          <span>Detected months</span>
+          <strong id="detectedMonthsCount">0</strong>
+        </article>
+
+        <article class="summary-card">
+          <span>Detected periods</span>
+          <strong id="detectedPeriodCount">0</strong>
+        </article>
+
+        <article class="summary-card">
+          <span>Missing periods</span>
+          <strong id="missingPeriodCount">0</strong>
+        </article>
+
+        <article class="summary-card">
+          <span>PDF analysis errors</span>
+          <strong id="previewErrorCount">0</strong>
+        </article>
+      </div>
+
+      <div
+        id="periodStatus"
+        class="status-callout neutral"
+        aria-live="polite"
+      >
+        Pay periods will be detected automatically after you select files.
+      </div>
+
+      <div class="table-wrap">
+        <table class="period-table">
+          <thead>
+            <tr>
+              <th scope="col">Expected pay period</th>
+              <th scope="col">FUEL</th>
+              <th scope="col">STATEMENT</th>
+              <th scope="col">Dated folder(s)</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+
+          <tbody id="periodResultsBody">
+            <tr>
+              <td colspan="5" class="empty-state">No periods detected yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- =====================================================
+         4. Rename preview
+         ===================================================== -->
+
+    <section class="panel" aria-labelledby="previewHeading">
+      <div class="section-heading-row">
+        <h2 id="previewHeading">4. Rename preview</h2>
+      </div>
+
+      <div
+        id="previewStatus"
+        class="status-callout neutral"
+        aria-live="polite"
+      >
+        Select a folder or ZIP to preview the detected dates and filenames.
+      </div>
+
+      <div class="table-wrap">
+        <table class="preview-table">
+          <thead>
+            <tr>
+              <th scope="col">Dated folder</th>
+              <th scope="col">Original file</th>
+              <th scope="col">Detected period</th>
+              <th scope="col">Unit</th>
+              <th scope="col">Proposed filename</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+
+          <tbody id="renamePreviewBody">
+            <tr>
+              <td colspan="6" class="empty-state">No rename preview yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- =====================================================
+         5. Validation and download
+         ===================================================== -->
+
     <section class="panel" aria-labelledby="resultsHeading">
       <div class="section-heading-row">
-        <h2 id="resultsHeading">3. Validation results</h2>
+        <h2 id="resultsHeading">5. Validation and download</h2>
 
         <button
           id="downloadButton"
@@ -296,9 +421,108 @@
     </footer>
   </main>
 
+  <!-- =====================================================
+       Help / How to use
+       ===================================================== -->
+
+  <div
+    id="helpModal"
+    class="help-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="helpTitle"
+    aria-hidden="true"
+  >
+    <div class="help-modal-backdrop" data-help-close="true"></div>
+
+    <div class="help-modal-card" role="document">
+      <div class="help-modal-header">
+        <div>
+          <p class="eyebrow">Quick guide</p>
+          <h2 id="helpTitle">How to use this site</h2>
+        </div>
+
+        <button
+          id="helpCloseButton"
+          type="button"
+          class="help-close-button"
+          aria-label="Close help"
+        >
+          &times;
+        </button>
+      </div>
+
+      <p class="help-intro">
+        Use the steps below to check, rename, and organize your Penner FUEL and
+        STATEMENT PDFs. Nothing is uploaded by this application.
+      </p>
+
+      <ol class="help-steps">
+        <li>
+          <strong>Get your statements.</strong>
+          Download the required GST files from Penner ShareFile. You can use an
+          extracted parent folder or keep the downloaded files in a ZIP.
+        </li>
+
+        <li>
+          <strong>Select or drop the files.</strong>
+          Drag and drop a GST folder or ZIP into the drop area, or use
+          <em>Choose GST parent folder</em> / <em>Choose a GST ZIP file</em>.
+          Matching PDFs must be directly inside an 8-digit dated folder such as
+          <code>20260430</code>.
+        </li>
+
+        <li>
+          <strong>Wait for automatic analysis.</strong>
+          The app reads the matching PDFs, detects their pay-period dates,
+          automatically estimates the number of months, and checks for missing,
+          incomplete, duplicate, or non-standard periods.
+        </li>
+
+        <li>
+          <strong>Review the detected pay periods.</strong>
+          A normal period should have one FUEL file and one STATEMENT file.
+          Warnings show periods or files that need to be checked before you create
+          the output.
+        </li>
+
+        <li>
+          <strong>Review the rename preview.</strong>
+          Check the detected period, unit number, and proposed filename. A typical
+          output name looks like
+          <code>2026-04_April_16-30_70161_FUEL.pdf</code>.
+        </li>
+
+        <li>
+          <strong>Create and download the output.</strong>
+          Choose structured output, flat output, or both. Leave the CSV audit log
+          selected if you want a record of the processing. Click
+          <em>Create output ZIP</em>, then <em>Download results ZIP</em>.
+        </li>
+      </ol>
+
+      <div class="help-note">
+        <strong>What files are processed?</strong>
+        Only filenames ending exactly in <code>_FUEL.pdf</code> or
+        <code>_STATEMENT.pdf</code>. Files such as <code>_FUELTAX.pdf</code>,
+        <code>_REPAIRS.pdf</code>, and <code>_LEGS.pdf</code> are ignored.
+      </div>
+
+      <div class="help-note">
+        <strong>Expected pattern:</strong>
+        normally 2 dated folders per month, with 1 FUEL and 1 STATEMENT PDF in
+        each folder (4 matching PDFs per month).
+      </div>
+
+      <div class="help-modal-actions">
+        <button id="helpDoneButton" type="button">Got it</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5-help-unified"></script>
 </body>
 
 </html>
